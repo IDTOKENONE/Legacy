@@ -1,0 +1,2 @@
+044863a7cb49ead1d197ef6d9c07ca5d7024905ef34d988a28cd34e462ec9883  arbitrage-contract.wasm
+c789c4ad72543fb9c3566338bc8b6d381cbad113e2094b8c557dd16fc01cc0bb  counter.wasm
