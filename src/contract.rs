@@ -65,7 +65,14 @@ pub fn execute(
     match msg {
         ExecuteMsg::ToggleLock {} => toggle_lock(deps, info),
         ExecuteMsg::Deposit {} => deposit(deps, info),
-        ExecuteMsg::Withdraw { amount} => withdraw(deps, info, env, amount),
+        ExecuteMsg::Withdraw {
+            amount
+            } => withdraw(
+                deps,   
+                info,   
+                env,    
+                amount
+            ),
         ExecuteMsg::UpdateState {
             whitelist,
             native_tokens,
@@ -249,7 +256,7 @@ fn withdraw(
     deps: DepsMut,
     info: MessageInfo,
     env: Env,
-    mut user_withdrawal_amount: Option<Uint128>,
+    amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let mut state = STATE.load(deps.storage).unwrap();
 
@@ -280,6 +287,20 @@ fn withdraw(
     let profit = total_balance - state.base_investment;
     let owner_percent = Decimal::percent(state.commission.into());
     let mut owner_withdrawal_amount = profit * owner_percent;
+    let mut user_withdrawal_amount = amount.clone();
+
+    match amount {
+        Some(amt) => {
+            if owner_withdrawal_amount + user_withdrawal_amount > total_balance {
+                state.base_investment = Uint128::zero();
+            } else {
+                state.base_investment = state.base_investment - owner_withdrawal_amount - user_withdrawal_amount;
+            }
+        },
+        None => {
+            state.base_investment = Uint128::zero();
+        }
+    }
 
     let mut owner_withdrawal_coins = vec![];
     let mut user_withdrawal_coins = vec![];
@@ -471,7 +492,7 @@ fn withdraw(
         }
     }
 
-    state.base_investment = total_balance - owner_withdrawal_amount;
+    STATE.save(deps.storage, &state);
 
     Ok(res)
 }
