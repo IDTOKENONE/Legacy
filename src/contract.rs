@@ -291,10 +291,10 @@ fn withdraw(
 
     match amount {
         Some(amt) => {
-            if owner_withdrawal_amount + user_withdrawal_amount > total_balance {
+            if owner_withdrawal_amount + amt > total_balance {
                 state.base_investment = Uint128::zero();
             } else {
-                state.base_investment = state.base_investment - owner_withdrawal_amount - user_withdrawal_amount;
+                state.base_investment = state.base_investment - owner_withdrawal_amount - amt;
             }
         },
         None => {
@@ -492,7 +492,7 @@ fn withdraw(
         }
     }
 
-    STATE.save(deps.storage, &state);
+    STATE.save(deps.storage, &state)?;
 
     Ok(res)
 }
