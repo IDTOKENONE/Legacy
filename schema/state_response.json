@@ -22,7 +22,9 @@
         "commission",
         "cw20_tokens",
         "lock",
+        "native_tokens",
         "owner",
+        "owner_withdrawal_address",
         "user",
         "whitelist"
       ],
@@ -44,7 +46,16 @@
         "lock": {
           "type": "boolean"
         },
+        "native_tokens": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "owner": {
+          "$ref": "#/definitions/Addr"
+        },
+        "owner_withdrawal_address": {
           "$ref": "#/definitions/Addr"
         },
         "user": {
