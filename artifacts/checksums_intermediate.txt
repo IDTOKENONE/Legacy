@@ -1,1 +1,1 @@
-69d5992904e3acec4d8ea5e879625216b274a68143f0375b696ad8416abd5194  ./target/wasm32-unknown-unknown/release/arbitrage_wallet.wasm
+867c1e9dfd819d103ad5529ddfacb32948ffb823764018a77d7fca9598618f61  ./target/wasm32-unknown-unknown/release/arbitrage_wallet.wasm
