@@ -1,106 +1,18 @@
-# CosmWasm Starter Pack
+# Luna Arbitrage Wallet
 
-This is a template to build smart contracts in Rust to run inside a
-[Cosmos SDK](https://github.com/cosmos/cosmos-sdk) module on all chains that enable it.
-To understand the framework better, please read the overview in the
-[cosmwasm repo](https://github.com/CosmWasm/cosmwasm/blob/master/README.md),
-and dig into the [cosmwasm docs](https://www.cosmwasm.com).
-This assumes you understand the theory and just want to get coding.
+### Personas
+- **owner**: The person/wallet who will be performing the arbitrage of funds. Earns a configurable % of profits.
+- **user**: The perso/wallet that supplies the funds that will be arbitraged.
 
-## Creating a new repo from template
-
-Assuming you have a recent version of rust and cargo (v1.51.0+) installed
-(via [rustup](https://rustup.rs/)),
-then the following should get you a new repo to start a contract:
-
-
-Install [cargo-generate](https://github.com/ashleygwilliams/cargo-generate) and cargo-run-script.
-Unless you did that before, run this line now:
-
-```sh
-cargo install cargo-generate cargo-run-script --features vendored-openssl 
-```
-
-Now, use it to create your new contract.
-Go to the folder in which you want to place it and run:
+### Contract Lifecycle
+- The **owner** instantiates the contract, supplying an address for the **user**.
+- The **user** whitelists specific addresses that the **owner** will be able to interact with - most likely, these should be exchange addresses. (Note: until the contract has been 'locked', the owner can supply these as well).
+- The **user** configures the list of Cw20 addresses & denoms that will be arbitraged with - these should be currencies that are all considered to have essentially equivalent value, such as Luna/bLuna/cLuna.
+- The **user** 'locks' the contract. This prevents the **owner** from making further configuration changes, securing the **user**'s funds.
+- The **user** deposits funds into the contract. The amount of funds deposited is kept track of.
+- The **owner** can now, from their own wallet, send tokens/messages/Cw20ExecuteMsg's to the smart contract that will be forwarded on accordingly. This gives the owner the ability to freely interact with the wallet's funds, but only with the whitelisted addresses.
+- At any time, the **owner** or **user** can withdraw funds. The **owner** receives a % of the _profit_ that has been made (default 20%). The rest of the funds are withdrawable by the user.
 
 
-**Latest: 0.16**
 
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --name PROJECT_NAME
-````
-
-**Older Version**
-
-Pass version as branch flag:
-
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --branch <version> --name PROJECT_NAME
-````
-
-Example:
-
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --branch 0.14 --name PROJECT_NAME
-```
-
-You will now have a new folder called `PROJECT_NAME` (I hope you changed that to something else)
-containing a simple working contract and build system that you can customize.
-
-## Create a Repo
-
-After generating, you have a initialized local git repo, but no commits, and no remote.
-Go to a server (eg. github) and create a new upstream repo (called `YOUR-GIT-URL` below).
-Then run the following:
-
-```sh
-# this is needed to create a valid Cargo.lock file (see below)
-cargo check
-git branch -M main
-git add .
-git commit -m 'Initial Commit'
-git remote add origin YOUR-GIT-URL
-git push -u origin master
-```
-
-## CI Support
-
-We have template configurations for both [GitHub Actions](.github/workflows/Basic.yml)
-and [Circle CI](.circleci/config.yml) in the generated project, so you can
-get up and running with CI right away.
-
-One note is that the CI runs all `cargo` commands
-with `--locked` to ensure it uses the exact same versions as you have locally. This also means
-you must have an up-to-date `Cargo.lock` file, which is not auto-generated.
-The first time you set up the project (or after adding any dep), you should ensure the
-`Cargo.lock` file is updated, so the CI will test properly. This can be done simply by
-running `cargo check` or `cargo unit-test`.
-
-## Using your project
-
-Once you have your custom repo, you should check out [Developing](./Developing.md) to explain
-more on how to run tests and develop code. Or go through the
-[online tutorial](https://docs.cosmwasm.com/) to get a better feel
-of how to develop.
-
-[Publishing](./Publishing.md) contains useful information on how to publish your contract
-to the world, once you are ready to deploy it on a running blockchain. And
-[Importing](./Importing.md) contains information about pulling in other contracts or crates
-that have been published.
-
-Please replace this README file with information about your specific project. You can keep
-the `Developing.md` and `Publishing.md` files as useful referenced, but please set some
-proper description in the README.
-
-## Gitpod integration
-
-[Gitpod](https://www.gitpod.io/) container-based development platform will be enabled on your project by default.
-
-Workspace contains:
- - **rust**: for builds
- - [wasmd](https://github.com/CosmWasm/wasmd): for local node setup and client
- - **jq**: shell JSON manipulation tool
-
-Follow [Gitpod Getting Started](https://www.gitpod.io/docs/getting-started) and launch your workspace.
-
+NOTE: I probably should have flipped the naming of user/owner as I think the current naming scheme feels backwards.
