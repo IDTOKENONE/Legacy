@@ -14,7 +14,7 @@
 - At any time, the **owner** or **user** can withdraw funds. The **owner** receives a % of the _profit_ that has been made (default 20%). The rest of the funds are withdrawable by the user.
 
 ### Future Considerations
-- In its current state, the **owner** must pay gas fees for the arbitrage trades. I might consider creating a FeeGrant that allows the **owner** to use the funds stored in the contract itself.
+- In its current state, the **owner** must pay gas fees for the arbitrage trades. Assuming a profitable strategy, this should be less than the 20% commission, but I might consider creating a FeeGrant that allows the **owner** to use the funds stored in the contract itself.
 
 
 
