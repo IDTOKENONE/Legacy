@@ -13,6 +13,9 @@
 - The **owner** can now, from their own wallet, send tokens/messages/Cw20ExecuteMsg's to the smart contract that will be forwarded on accordingly. This gives the owner the ability to freely interact with the wallet's funds, but only with the whitelisted addresses.
 - At any time, the **owner** or **user** can withdraw funds. The **owner** receives a % of the _profit_ that has been made (default 20%). The rest of the funds are withdrawable by the user.
 
+### Future Considerations
+- In its current state, the **owner** must pay gas fees for the arbitrage trades. I might consider creating a FeeGrant that allows the **owner** to use the funds stored in the contract itself.
+
 
 
 NOTE: I probably should have flipped the naming of user/owner as I think the current naming scheme feels backwards.
