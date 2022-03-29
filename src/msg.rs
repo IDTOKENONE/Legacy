@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Uint128, Binary};
+use cosmwasm_std::{Addr, Uint128, Binary, Coin};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -13,18 +13,22 @@ pub struct ConfigItem {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub user: Addr,
+    pub owner_withdrawal_address: Option<Addr>,
+    pub whitelist: Option<Vec<Addr>>,
+    pub native_tokens: Option<Vec<String>>,
+    pub cw20_tokens: Option<Vec<Addr>>,
+    pub commission: Option<u8>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
     ToggleLock {},
-    Whitelist { addresses: Vec<Addr> },
-    RegisterTokens { addresses: Vec<Addr> },
-    AdjustDistribution { amt: u8 },
-    Trade { address: Addr, msg: Binary, luna_amt: Uint128 },
+    UpdateState { whitelist: Option<Vec<Addr>>, native_tokens: Option<Vec<String>>, cw20_tokens: Option<Vec<Addr>>, commission: Option<u8>, user: Option<Addr> },
+    SendNative{ address: Addr, funds: Option<Vec<Coin>>, msg: Option<Binary> },
+    SendCw20 { address: Addr, token_addr: Addr, amount: Uint128, msg: Option<Binary> },
     Deposit {},
-    Withdraw {},
+    Withdraw { amount: Option<Uint128> },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
