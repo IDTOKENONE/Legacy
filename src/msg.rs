@@ -29,6 +29,7 @@ pub enum ExecuteMsg {
     SendCw20 { address: Addr, token_addr: Addr, amount: Uint128, msg: Option<Binary> },
     Deposit {},
     Withdraw { amount: Option<Uint128> },
+    UpdateWithdrawal { address: Addr },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

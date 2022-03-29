@@ -113,7 +113,31 @@ pub fn execute(
                 amount,
                 msg
             ),
+        ExecuteMsg::UpdateWithdrawal {
+            address,
+            } => update_owner_withdrawal(
+                deps,
+                info,
+                address,
+            ),
     }
+}
+
+fn update_owner_withdrawal(
+    deps: DepsMut,
+    info: MessageInfo,
+    address: Addr,
+) -> Result<Response, ContractError> {
+    let mut state = STATE.load(deps.storage).unwrap();
+
+    if info.sender != state.owner {
+        return Err(ContractError::Unauthorized {})
+    }
+
+    state.owner_withdrawal_address = address;
+    STATE.save(deps.storage, &state)?;
+
+    Ok(Response::new().add_attribute("method", "update_owner_withdrawal"))
 }
 
 fn send_native(
