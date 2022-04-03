@@ -529,7 +529,7 @@ fn toggle_lock(
 
     if info.sender == state.funder {
         state.funder_lock = !state.funder_lock;
-        STATE.save(deps.storage, &state);
+        STATE.save(deps.storage, &state)?;
         return Ok(Response::new()
             .add_attribute("method", "toggle_lock")
             .add_attribute("funder_lock", state.funder_lock.to_string())
@@ -539,7 +539,7 @@ fn toggle_lock(
 
     if info.sender == state.trader {
         state.trader_lock = !state.trader_lock;
-        STATE.save(deps.storage, &state);
+        STATE.save(deps.storage, &state)?;
         return Ok(Response::new()
             .add_attribute("method", "toggle_lock")
             .add_attribute("funder_lock", state.funder_lock.to_string())

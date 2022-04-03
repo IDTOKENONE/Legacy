@@ -1,1 +1,1 @@
-e35166c2a954d86fb6b0e5f23ffccc3a7b84664c0843b6d28cd3a6ebd4d07803  arbitrage_wallet.wasm
+5938fbae9761a11b86979dabf69610e5c6c29375a798aa979d747c9cf23de176  arbitrage_wallet.wasm
