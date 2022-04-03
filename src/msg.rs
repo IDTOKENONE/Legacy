@@ -12,8 +12,8 @@ pub struct ConfigItem {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
-    pub user: Addr,
-    pub owner_withdrawal_address: Option<Addr>,
+    pub funder: Addr,
+    pub trader_withdrawal_address: Option<Addr>,
     pub whitelist: Option<Vec<Addr>>,
     pub native_tokens: Option<Vec<String>>,
     pub cw20_tokens: Option<Vec<Addr>>,

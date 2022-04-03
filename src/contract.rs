@@ -22,9 +22,9 @@ pub fn instantiate(
 ) -> Result<Response, ContractError> {
 
     // Save who the owner & user are
-    let mut state = State::initial(
+    let mut state = State::new(
         info.clone().sender,
-        msg.clone().user
+        msg.clone().funder
     );
 
     // Assign state items that were specified
@@ -42,8 +42,8 @@ pub fn instantiate(
             state.commission = commission;
         }
     }
-    if let Some(addr) = msg.owner_withdrawal_address {
-        state.owner_withdrawal_address = addr;
+    if let Some(addr) = msg.trader_withdrawal_address {
+        state.trader_withdrawal_address = addr;
     }
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -52,7 +52,7 @@ pub fn instantiate(
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("owner", info.sender)
-        .add_attribute("user", msg.user.to_string()))
+        .add_attribute("user", msg.funder.to_string()))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -130,11 +130,11 @@ fn update_owner_withdrawal(
 ) -> Result<Response, ContractError> {
     let mut state = STATE.load(deps.storage).unwrap();
 
-    if info.sender != state.owner {
+    if info.sender != state.trader {
         return Err(ContractError::Unauthorized {})
     }
 
-    state.owner_withdrawal_address = address;
+    state.trader_withdrawal_address = address;
     STATE.save(deps.storage, &state)?;
 
     Ok(Response::new().add_attribute("method", "update_owner_withdrawal"))
@@ -150,7 +150,7 @@ fn send_native(
     let state = STATE.load(deps.storage).unwrap();
 
     // Check if sender is owner
-    if info.sender != state.owner {
+    if info.sender != state.trader {
         return Err(ContractError::Unauthorized {})
     }
 
@@ -201,7 +201,7 @@ fn send_cw20(
 ) -> Result<Response, ContractError> {
     let state = STATE.load(deps.storage).unwrap();
 
-    if info.sender != state.owner {
+    if info.sender != state.trader {
         return Err(ContractError::Unauthorized {})
     }
 
@@ -248,7 +248,7 @@ fn deposit(
 ) -> Result<Response, ContractError> {
     let state = STATE.load(deps.storage).unwrap();
     // Check if address is user
-    if info.sender != state.user {
+    if info.sender != state.funder {
         // If sender is not user
         return Err(ContractError::Unauthorized {})
     }
@@ -333,7 +333,7 @@ fn withdraw(
     'outer_coins: for coin in coins {
         // All of owner allocation has been withdrawn
         if owner_withdrawal_amount.is_zero() {
-            if info.sender == state.user {
+            if info.sender == state.funder {
                 match user_withdrawal_amount {
                     Some(withdraw_amt) => {
                         if coin.amount < withdraw_amt {
@@ -366,7 +366,7 @@ fn withdraw(
         // Some of coin will be sent to owner, and some to user
         } else {
             owner_withdrawal_coins.push(Coin { denom: coin.denom.clone(), amount: owner_withdrawal_amount.clone() });
-            if info.sender == state.user {
+            if info.sender == state.funder {
                 let coin_amount = coin.amount - owner_withdrawal_amount;
                 match user_withdrawal_amount {
                     Some(withdraw_amt) => {
@@ -399,13 +399,13 @@ fn withdraw(
     
     if owner_withdrawal_coins.len() > 0 {
         res = res.add_message(CosmosMsg::Bank(BankMsg::Send {
-            to_address: state.owner_withdrawal_address.clone().into_string(),
+            to_address: state.trader_withdrawal_address.clone().into_string(),
             amount: owner_withdrawal_coins,
         }));
     }
-    if user_withdrawal_coins.len() > 0 && info.sender == state.user {
+    if user_withdrawal_coins.len() > 0 && info.sender == state.funder {
         res = res.add_message(CosmosMsg::Bank(BankMsg::Send {
-            to_address: state.user.clone().into_string(),
+            to_address: state.funder.clone().into_string(),
             amount: user_withdrawal_coins,
         }))
     }
@@ -414,7 +414,7 @@ fn withdraw(
     'outer_token: for (token_addr, token_amt) in tokens {
         // All of token will be sent to user
         if owner_withdrawal_amount.is_zero() {
-            if info.sender == state.user {
+            if info.sender == state.funder {
                 match user_withdrawal_amount {
                     Some(withdraw_amt) => {
                         if token_amt < withdraw_amt {
@@ -422,7 +422,7 @@ fn withdraw(
                                 contract_addr: token_addr.into_string(),
                                 funds: vec![],
                                 msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.user.clone().into_string(),
+                                    recipient: state.funder.clone().into_string(),
                                     amount: token_amt,
                                 }).unwrap(),
                             }));
@@ -432,7 +432,7 @@ fn withdraw(
                                 contract_addr: token_addr.into_string(),
                                 funds: vec![],
                                 msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.user.clone().into_string(),
+                                    recipient: state.funder.clone().into_string(),
                                     amount: withdraw_amt,
                                 }).unwrap(),
                             }));
@@ -445,7 +445,7 @@ fn withdraw(
                             contract_addr: token_addr.into_string(),
                             funds: vec![],
                             msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                recipient: state.user.clone().into_string(),
+                                recipient: state.funder.clone().into_string(),
                                 amount: token_amt,
                             }).unwrap(),
                         }));
@@ -458,7 +458,7 @@ fn withdraw(
                 contract_addr: token_addr.into_string(),
                 funds: vec![],
                 msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: state.owner_withdrawal_address.clone().into_string(),
+                    recipient: state.trader_withdrawal_address.clone().into_string(),
                     amount: token_amt,
                 }).unwrap(),
             }));
@@ -469,12 +469,12 @@ fn withdraw(
                 contract_addr: token_addr.clone().into_string(),
                 funds: vec![],
                 msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: state.owner_withdrawal_address.clone().into_string(),
+                    recipient: state.trader_withdrawal_address.clone().into_string(),
                     amount: owner_withdrawal_amount.clone(),
                 }).unwrap(),
             }));
             let token_amt = token_amt - owner_withdrawal_amount;
-            if info.sender == state.user {
+            if info.sender == state.funder {
                 match user_withdrawal_amount {
                     Some(withdraw_amt) => {
                         if token_amt < withdraw_amt {
@@ -482,7 +482,7 @@ fn withdraw(
                                 contract_addr: token_addr.into_string(),
                                 funds: vec![],
                                 msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.user.clone().into_string(),
+                                    recipient: state.funder.clone().into_string(),
                                     amount: token_amt,
                                 }).unwrap(),
                             }));
@@ -492,7 +492,7 @@ fn withdraw(
                                 contract_addr: token_addr.into_string(),
                                 funds: vec![],
                                 msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.user.clone().into_string(),
+                                    recipient: state.funder.clone().into_string(),
                                     amount: withdraw_amt,
                                 }).unwrap(),
                             }));
@@ -505,7 +505,7 @@ fn withdraw(
                             contract_addr: token_addr.into_string(),
                             funds: vec![],
                             msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                recipient: state.user.clone().into_string(),
+                                recipient: state.funder.clone().into_string(),
                                 amount: token_amt - owner_withdrawal_amount,
                             }).unwrap(),
                         }));        
@@ -525,21 +525,30 @@ fn toggle_lock(
     deps: DepsMut,
     info: MessageInfo
 ) -> Result<Response, ContractError> {
-    let state = STATE.load(deps.storage).unwrap();
+    let mut state = STATE.load(deps.storage).unwrap();
 
-    // Check if sender is user
-    if info.sender != state.user {
-        // If sender is not user
-        return Err(ContractError::Unauthorized {})
+    if info.sender == state.funder {
+        state.funder_lock = !state.funder_lock;
+        STATE.save(deps.storage, &state);
+        return Ok(Response::new()
+            .add_attribute("method", "toggle_lock")
+            .add_attribute("funder_lock", state.funder_lock.to_string())
+            .add_attribute("trader_lock", state.trader_lock.to_string())
+            .add_attribute("locked", (state.trader_lock || state.funder_lock).to_string()))
     }
 
-    // Flip lock between true/false
-    STATE.update(deps.storage, |mut state| -> Result<_, ContractError> {
-        state.lock = !state.lock;
-        Ok(state)
-    })?;
-    
-    Ok(Response::new().add_attribute("method", "toggle_lock"))
+    if info.sender == state.trader {
+        state.trader_lock = !state.trader_lock;
+        STATE.save(deps.storage, &state);
+        return Ok(Response::new()
+            .add_attribute("method", "toggle_lock")
+            .add_attribute("funder_lock", state.funder_lock.to_string())
+            .add_attribute("trader_lock", state.trader_lock.to_string())
+            .add_attribute("locked", (state.trader_lock || state.funder_lock).to_string()))
+    }
+
+    Err(ContractError::Unauthorized {})
+
 }
 
 fn update_state(
@@ -554,15 +563,18 @@ fn update_state(
 ) -> Result<Response, ContractError> {
     let mut state = STATE.load(deps.storage).unwrap();
 
-    // Check if sender is owner
-    if info.sender == state.owner {
-        // Check if STATE.locked
-        if state.lock {
+    // If sender is trader and funder has locked
+    if info.sender == state.trader {
+        if state.funder_lock {
             return Err(ContractError::Locked {})
         }
-    // Check if sender is user
-    } else if info.sender != state.user {
-        // If not
+    // If sender is funder and trader has locked
+    } else if info.sender == state.funder {
+        if state.trader_lock {
+            return Err(ContractError::Locked {})
+        }
+    // If sender is neither of funder or trader
+    } else {
         return Err(ContractError::Unauthorized {})
     }
 
@@ -604,7 +616,7 @@ fn update_state(
             }
         }
         if total_balance.is_zero() {
-            state.user = val;
+            state.funder = val;
         }
     }
 

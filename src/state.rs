@@ -8,29 +8,31 @@ use crate::MINIMUM_COMMISSION;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct State {
-    pub owner: Addr,
-    pub owner_withdrawal_address: Addr,
-    pub user: Addr,
+    pub trader: Addr,
+    pub trader_withdrawal_address: Addr,
+    pub funder: Addr,
     pub whitelist: Vec<Addr>,
     pub native_tokens: Vec<String>,
     pub cw20_tokens: Vec<Addr>,
-    pub lock: bool,
+    pub trader_lock: bool,
+    pub funder_lock: bool,
     pub base_investment: Uint128,
     pub commission: u8,
 }
 
 
 impl State {
-    pub fn initial(owner: Addr, user: Addr) -> State {
-        let withdrawal_address = owner.clone();
+    pub fn new(trader: Addr, funder: Addr) -> State {
+        let withdrawal_address = trader.clone();
         State {
-            owner,
-            owner_withdrawal_address: withdrawal_address,
-            user,
+            trader,
+            trader_withdrawal_address: withdrawal_address,
+            funder,
             whitelist: vec![],
             native_tokens: vec![],
             cw20_tokens: vec![],
-            lock: false,
+            trader_lock: false,
+            funder_lock: false,
             base_investment: Uint128::new(0),
             commission: MINIMUM_COMMISSION,
         }
