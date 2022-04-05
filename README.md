@@ -1,21 +1,20 @@
 # Luna Arbitrage Wallet
 
 ### Personas
-- **owner**: The person/wallet who will be performing the arbitrage of funds. Earns a configurable % of profits.
-- **user**: The perso/wallet that supplies the funds that will be arbitraged.
+- **trader**: The person/wallet who will be performing the arbitrage of funds. Earns a configurable % of profits.
+- **funder**: The perso/wallet that supplies the funds that will be arbitraged.
 
 ### Contract Lifecycle
-- The **owner** instantiates the contract, supplying an address for the **user**.
-- The **user** whitelists specific addresses that the **owner** will be able to interact with - most likely, these should be exchange addresses. (Note: until the contract has been 'locked', the owner can supply these as well).
-- The **user** configures the list of Cw20 addresses & denoms that will be arbitraged with - these should be currencies that are all considered to have essentially equivalent value, such as Luna/bLuna/cLuna.
-- The **user** 'locks' the contract. This prevents the **owner** from making further configuration changes, securing the **user**'s funds.
-- The **user** deposits funds into the contract. The amount of funds deposited is kept track of.
-- The **owner** can now, from their own wallet, send tokens/messages/Cw20ExecuteMsg's to the smart contract that will be forwarded on accordingly. This gives the owner the ability to freely interact with the wallet's funds, but only with the whitelisted addresses.
-- At any time, the **owner** or **user** can withdraw funds. The **owner** receives a % of the _profit_ that has been made (default 20%). The rest of the funds are withdrawable by the user.
+- The **trader** instantiates the contract, supplying an address for the **funder**.
+- The **trader** and the **funder** are both able to update the state of the contract. They can/should update the following:
+    - The ***whitelist*** of addresses that the **funder** will be allowed to send funds to. These should be exchange addresses.
+    - The ***assets*** that will be considered part of the arbitrage. These should all be assets of roughly equivalent value, such as Luna/cLuna/bLuna, etc.
+    - The ***commission*** amount of profits that will be allocated to the trader.
+    - The ***trader_withdrawal_address*** (adjustable only by trader) that the trader's funds will be withdrawn to, if different from the address submitting transactions.
+- The **funder** or **trader** (or both) locks the contract. Once the contract has been locked, the state (described above) can no longer be modified until it is unlocked by everyone who has locked it.
+- The **funder** deposits funds into the contract. The amount of funds deposited is kept track of.
+- The **trader** can now, from their own wallet, send coins/tokens/msgs to the smart contract that will be forwarded on accordingly. This gives the **trader** the ability to freely interact with the wallet's funds, but only when sending to the whitelisted addresses.
+- At any time, the **funder** or **trader** can withdraw funds. The **trader** receives a % of the ***profit*** that has been made (default 20%). The rest of the funds are withdrawable by the **funder**.
 
-### Future Considerations
-- In its current state, the **owner** must pay gas fees for the arbitrage trades. Assuming a profitable strategy, this should be less than the 20% commission, but I might consider creating a FeeGrant that allows the **owner** to use the funds stored in the contract itself.
-
-
-
-NOTE: I probably should have flipped the naming of user/owner as I think the current naming scheme feels backwards.
+### Future Considerations / Todo
+- Use submessages to track that assets being received from trade messages are part of the approved assets list. If not, the transaction will be rejected. This is to prevent the **trader** from discreetly exchanging assets for an un-approved asset through a contract that allows trade to multiple currencies - such as the way that PRISM is configured.
