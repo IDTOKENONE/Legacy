@@ -1,13 +1,14 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Addr, Uint128, QuerierWrapper, QueryRequest, WasmQuery, Decimal, BankMsg, CosmosMsg, Coin, WasmMsg};
+use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Addr, Uint128, Decimal, BankMsg, CosmosMsg, Coin, WasmMsg};
 use cw2::set_contract_version;
-use cw20::{BalanceResponse, Cw20QueryMsg, Cw20ExecuteMsg};
+use cw20::Cw20ExecuteMsg;
 
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StateResponse};
-use crate::state::{State, STATE};
+use crate::state::{State, STATE, Asset};
 use crate::MINIMUM_COMMISSION;
+use crate::util::{query_token_balance, add_cw20_msg};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:counter";
@@ -31,11 +32,8 @@ pub fn instantiate(
     if let Some(whitelist) = msg.whitelist {
         state.whitelist = whitelist;
     }
-    if let Some(native_tokens) = msg.native_tokens {
-        state.native_tokens = native_tokens;
-    }
-    if let Some(cw20_tokens) = msg.cw20_tokens {
-        state.cw20_tokens = cw20_tokens;
+    if let Some(assets) = msg.assets {
+        state.assets = assets;
     }
     if let Some(commission) = msg.commission {
         if commission >= MINIMUM_COMMISSION {
@@ -75,8 +73,7 @@ pub fn execute(
             ),
         ExecuteMsg::UpdateState {
             whitelist,
-            native_tokens,
-            cw20_tokens,
+            assets,
             commission,
             user,
             } => update_state(
@@ -84,8 +81,7 @@ pub fn execute(
                 info,
                 env,
                 whitelist,
-                native_tokens,
-                cw20_tokens,
+                assets,
                 commission,
                 user,
             ),
@@ -139,6 +135,7 @@ fn update_owner_withdrawal(
 
     Ok(Response::new().add_attribute("method", "update_owner_withdrawal"))
 }
+
 
 fn send_native(
     deps: DepsMut,
@@ -284,237 +281,193 @@ fn withdraw(
 ) -> Result<Response, ContractError> {
     let mut state = STATE.load(deps.storage).unwrap();
 
+    if 
+        info.sender != state.funder && 
+        info.sender != state.trader && 
+        info.sender != state.trader_withdrawal_address 
+    {
+        return Err(ContractError::Unauthorized {})
+    }
+
     let mut res = Response::new()
         .add_attribute("method", "withdraw");
 
     let mut total_balance = Uint128::zero();
-    let mut coins = vec![];
-    let mut tokens = vec![];
+    let mut assets: Vec<(Asset, Uint128)> = vec![];
 
-
-    for denom in state.native_tokens.clone() {
-        let balance = deps.querier.query_balance(env.contract.address.clone(), denom);
-        if let Ok(coin) = balance {
-            total_balance += coin.amount;
-            coins.push(coin);
-        }
-    }
-
-    for token_addr in state.cw20_tokens.clone() {
-        let balance = query_token_balance(&deps.querier, token_addr.clone(), env.contract.address.clone());
-        if let Ok(bal) = balance {
-            total_balance += bal;
-            tokens.push((token_addr, bal));
+    for asset in state.assets.clone() {
+        match asset.clone() {
+            Asset::Native(denom) => {
+                let balance = deps.querier.query_balance(env.contract.address.clone(), denom);
+                if let Ok(coin) = balance {
+                    total_balance += coin.amount;
+                    assets.push((asset, coin.amount));
+                }
+            },
+            Asset::Token(address) => {
+                let balance = query_token_balance(&deps.querier, address.clone(), env.contract.address.clone());
+                if let Ok(bal) = balance {
+                    total_balance += bal;
+                    assets.push((asset, bal));
+                }
+            },
         }
     }
 
     let profit = total_balance - state.base_investment;
-    let owner_percent = Decimal::percent(state.commission.into());
-    let mut owner_withdrawal_amount = profit * owner_percent;
-    let mut user_withdrawal_amount = amount.clone();
+    let trader_percent = Decimal::percent(state.commission.into());
+    let mut trader_funds = profit * trader_percent;
+    let mut funder_withdrawal = total_balance - trader_funds;
 
-    match amount {
-        Some(amt) => {
-            if owner_withdrawal_amount + amt > total_balance {
-                state.base_investment = Uint128::zero();
-            } else {
-                state.base_investment = state.base_investment - owner_withdrawal_amount - amt;
-            }
-        },
-        None => {
-            state.base_investment = Uint128::zero();
+    let mut trader_coins = vec![];
+    let mut funder_coins = vec![];
+
+    if let Some(amt) = amount {
+        funder_withdrawal = amt;
+    }
+
+    state.base_investment = total_balance - trader_funds - funder_withdrawal;
+
+    'outer: for asset in assets {
+        match asset {
+            (Asset::Native(denom), amt) => {
+                if trader_funds >= amt {
+                    // All of this asset goes to trader
+                    trader_coins.push(Coin {
+                        denom,
+                        amount: amt,
+                    });
+                    trader_funds -= amt;
+                } else if !trader_funds.is_zero() {
+                    // Only *some* of this asset goes to trader
+                    trader_coins.push(Coin {
+                        denom: denom.clone(),
+                        amount: trader_funds,
+                    });
+                    
+                    // Check for withdrawal to funder
+                    if funder_withdrawal >= amt - trader_funds {
+                        // All remaining goes to funder
+                        funder_coins.push(Coin {
+                            denom,
+                            amount: amt - trader_funds,
+                        });
+                        funder_withdrawal -= amt - trader_funds;
+                    } else if !funder_withdrawal.is_zero() {
+                        // Some of this asset goes to funder
+                        funder_coins.push(Coin {
+                            denom,
+                            amount: funder_withdrawal,
+                        });
+                        // funder_withdrawal = Uint128::zero();
+                        break 'outer
+                    }
+
+                    trader_funds = Uint128::zero();
+                } else if funder_withdrawal >= amt {
+                    // All of this asset goes to funder
+                    funder_coins.push(Coin {
+                        denom,
+                        amount: amt,
+                    });
+                    funder_withdrawal -= amt;
+                } else if !funder_withdrawal.is_zero() {
+                    // Some of this asset goes to funder
+                    funder_coins.push(Coin {
+                        denom,
+                        amount: funder_withdrawal,
+                    });
+                    // funder_withdrawal = Uint128::zero();
+                    break 'outer;
+                } else {
+                    break 'outer;
+                }
+            },
+            (Asset::Token(addr), amt) => {
+                if trader_funds >= amt {
+                    // All of this asset goes to trader
+                    res = add_cw20_msg(
+                        res,
+                        addr,
+                        state.trader_withdrawal_address.clone(),
+                        amt,
+                        None,
+                    );
+                    trader_funds -= amt;
+                } else if !trader_funds.is_zero() {
+                    // Only *some* of this asset goes to trader
+                    res = add_cw20_msg(
+                        res,
+                        addr.clone(),
+                        state.trader_withdrawal_address.clone(),
+                        trader_funds,
+                        None
+                    );
+
+                    // Check for withdrawal to funder
+                    if funder_withdrawal >= amt - trader_funds {
+                        // All remaining goes to funder
+                        res = add_cw20_msg(
+                            res,
+                            addr,
+                            state.funder.clone(),
+                            amt - trader_funds,
+                            None,
+                        );
+                        funder_withdrawal -= amt - trader_funds;
+                    } else if !funder_withdrawal.is_zero() {
+                        // Some of this asset goes to funder
+                        res = add_cw20_msg(
+                            res,
+                            addr,
+                            state.funder.clone(),
+                            funder_withdrawal,
+                            None,
+                        );
+                        // funder_withdrawal = Uint128::zero();
+                        break 'outer;
+                    }
+                } else if funder_withdrawal >= amt {
+                    // All of this asset goes to funder
+                    res = add_cw20_msg(
+                        res,
+                        addr,
+                        state.funder.clone(),
+                        amt,
+                        None,
+                    );
+                    funder_withdrawal -= amt;
+                } else if !funder_withdrawal.is_zero() {
+                    // Some of this asset goes to funder
+                    res = add_cw20_msg(
+                        res,
+                        addr,
+                        state.funder.clone(),
+                        funder_withdrawal,
+                        None,
+                    );
+                    // funder_withdrawal = Uint128::zero();
+                    break 'outer;
+                } else {
+                    break 'outer;
+                }
+            },
         }
     }
 
-    let mut owner_withdrawal_coins = vec![];
-    let mut user_withdrawal_coins = vec![];
-
-    // Withdraw coins
-    'outer_coins: for coin in coins {
-        // All of owner allocation has been withdrawn
-        if owner_withdrawal_amount.is_zero() {
-            if info.sender == state.funder {
-                match user_withdrawal_amount {
-                    Some(withdraw_amt) => {
-                        if coin.amount < withdraw_amt {
-                            user_withdrawal_coins.push(Coin {
-                                denom: coin.denom,
-                                amount: coin.amount,
-                            });
-                            user_withdrawal_amount = Some(withdraw_amt - coin.amount);
-                        } else {
-                            user_withdrawal_coins.push(Coin {
-                                denom: coin.denom,
-                                amount: withdraw_amt,
-                            });
-                            // user_withdrawal_amount = Some(Uint128::zero());
-                            break 'outer_coins;
-                        }
-                    },
-                    None => {
-                        user_withdrawal_coins.push(Coin {
-                            denom: coin.denom,
-                            amount: coin.amount,
-                        });
-                    }
-                }
-            }
-        // All of coin will be sent to owner
-        } else if coin.amount < owner_withdrawal_amount {
-            owner_withdrawal_coins.push(Coin { denom: coin.denom, amount: coin.amount });
-            owner_withdrawal_amount -= coin.amount;
-        // Some of coin will be sent to owner, and some to user
-        } else {
-            owner_withdrawal_coins.push(Coin { denom: coin.denom.clone(), amount: owner_withdrawal_amount.clone() });
-            if info.sender == state.funder {
-                let coin_amount = coin.amount - owner_withdrawal_amount;
-                match user_withdrawal_amount {
-                    Some(withdraw_amt) => {
-                        if coin_amount < withdraw_amt {
-                            user_withdrawal_coins.push(Coin {
-                                denom: coin.denom,
-                                amount: coin_amount,
-                            });
-                            user_withdrawal_amount = Some(withdraw_amt - coin_amount);
-                        } else {
-                            user_withdrawal_coins.push(Coin {
-                                denom: coin.denom,
-                                amount: withdraw_amt,
-                            });
-                            // user_withdrawal_amount = Some(Uint128::zero());
-                            break 'outer_coins;
-                        }
-                    },
-                    None => {
-                        user_withdrawal_coins.push(Coin {
-                            denom: coin.denom,
-                            amount: coin.amount,
-                        });
-                    }
-                }
-            }
-            owner_withdrawal_amount = Uint128::zero();
-        }
-    }
-    
-    if owner_withdrawal_coins.len() > 0 {
+    // Send coins
+    if trader_coins.len() > 0 {
         res = res.add_message(CosmosMsg::Bank(BankMsg::Send {
-            to_address: state.trader_withdrawal_address.clone().into_string(),
-            amount: owner_withdrawal_coins,
+            to_address: state.trader_withdrawal_address.to_string(),
+            amount: trader_coins,
         }));
-    }
-    if user_withdrawal_coins.len() > 0 && info.sender == state.funder {
+    };
+    if funder_coins.len() > 0 {
         res = res.add_message(CosmosMsg::Bank(BankMsg::Send {
-            to_address: state.funder.clone().into_string(),
-            amount: user_withdrawal_coins,
-        }))
-    }
-
-    // Withdraw tokens
-    'outer_token: for (token_addr, token_amt) in tokens {
-        // All of token will be sent to user
-        if owner_withdrawal_amount.is_zero() {
-            if info.sender == state.funder {
-                match user_withdrawal_amount {
-                    Some(withdraw_amt) => {
-                        if token_amt < withdraw_amt {
-                            res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: token_addr.into_string(),
-                                funds: vec![],
-                                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.funder.clone().into_string(),
-                                    amount: token_amt,
-                                }).unwrap(),
-                            }));
-                            user_withdrawal_amount = Some(withdraw_amt - token_amt);
-                        } else {
-                            res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: token_addr.into_string(),
-                                funds: vec![],
-                                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.funder.clone().into_string(),
-                                    amount: withdraw_amt,
-                                }).unwrap(),
-                            }));
-                            // user_withdrawal_amount = Some(Uint128::zero());
-                            break 'outer_token;
-                        }
-                    },
-                    None => {
-                        res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
-                            contract_addr: token_addr.into_string(),
-                            funds: vec![],
-                            msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                recipient: state.funder.clone().into_string(),
-                                amount: token_amt,
-                            }).unwrap(),
-                        }));
-                    }
-                }
-            }
-        // All of token will be sent to owner
-        } else if token_amt < owner_withdrawal_amount {
-            res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute{
-                contract_addr: token_addr.into_string(),
-                funds: vec![],
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: state.trader_withdrawal_address.clone().into_string(),
-                    amount: token_amt,
-                }).unwrap(),
-            }));
-            owner_withdrawal_amount -= token_amt;
-        // Some of token will be sent to owner, and some to user
-        } else {
-            res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: token_addr.clone().into_string(),
-                funds: vec![],
-                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                    recipient: state.trader_withdrawal_address.clone().into_string(),
-                    amount: owner_withdrawal_amount.clone(),
-                }).unwrap(),
-            }));
-            let token_amt = token_amt - owner_withdrawal_amount;
-            if info.sender == state.funder {
-                match user_withdrawal_amount {
-                    Some(withdraw_amt) => {
-                        if token_amt < withdraw_amt {
-                            res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: token_addr.into_string(),
-                                funds: vec![],
-                                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.funder.clone().into_string(),
-                                    amount: token_amt,
-                                }).unwrap(),
-                            }));
-                            user_withdrawal_amount = Some(withdraw_amt - token_amt);
-                        } else {
-                            res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
-                                contract_addr: token_addr.into_string(),
-                                funds: vec![],
-                                msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                    recipient: state.funder.clone().into_string(),
-                                    amount: withdraw_amt,
-                                }).unwrap(),
-                            }));
-                            // user_withdrawal_amount = Some(Uint128::zero());
-                            break 'outer_token;
-                        }
-                    },
-                    None => {
-                        res = res.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
-                            contract_addr: token_addr.into_string(),
-                            funds: vec![],
-                            msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                                recipient: state.funder.clone().into_string(),
-                                amount: token_amt - owner_withdrawal_amount,
-                            }).unwrap(),
-                        }));        
-                    }
-                }
-            };
-            owner_withdrawal_amount = Uint128::zero();
-        }
-    }
+            to_address: state.funder.to_string(),
+            amount: funder_coins,
+        }));
+    };
 
     STATE.save(deps.storage, &state)?;
 
@@ -556,8 +509,7 @@ fn update_state(
     info: MessageInfo,
     env: Env,
     whitelist: Option<Vec<Addr>>,
-    native_tokens: Option<Vec<String>>,
-    cw20_tokens: Option<Vec<Addr>>,
+    assets: Option<Vec<Asset>>,
     commission: Option<u8>,
     user: Option<Addr>,
 ) -> Result<Response, ContractError> {
@@ -582,12 +534,9 @@ fn update_state(
     if let Some(val) = whitelist {
         state.whitelist = val;
     };
-    if let Some(val) = native_tokens {
-        state.native_tokens = val;
-    };
-    if let Some(val) = cw20_tokens {
-        state.cw20_tokens = val;
-    };
+    if let Some(val) = assets {
+        state.assets = val;
+    }
     if let Some(val) = commission {
         if val >= MINIMUM_COMMISSION {
             state.commission = val;
@@ -596,26 +545,22 @@ fn update_state(
     if let Some(val) = user {
         // Check that there are currently no funds in the contract
         let mut total_balance = Uint128::zero();
-        for token_address in &state.cw20_tokens {
-            let balance = query_token_balance(
-                &deps.querier,
-                token_address.clone(),
-                env.contract.address.clone()
-            );
-            if let Ok(bal) = balance {
-                total_balance += bal;
+        for asset in state.assets.clone() {
+            match asset {
+                Asset::Native(denom) => {
+                    let balance = deps.querier.query_balance(env.contract.address.clone(), denom);
+                    if let Ok(coin) = balance {
+                        total_balance += coin.amount;
+                    }
+                },
+                Asset::Token(address) => {
+                    let balance = query_token_balance(&deps.querier, address.clone(), env.contract.address.clone());
+                    if let Ok(bal) = balance {
+                        total_balance += bal;
+                    }
+                },
             }
-        }
-        for denom in &state.native_tokens {
-            let balance = deps.querier.query_balance(
-                env.contract.address.clone(),
-                denom,
-            );
-            if let Ok(coin) = balance {
-                total_balance += coin.amount;
-            }
-        }
-        if total_balance.is_zero() {
+        }        if total_balance.is_zero() {
             state.funder = val;
         }
     }
@@ -623,21 +568,6 @@ fn update_state(
     STATE.save(deps.storage, &state)?;
 
     Ok(Response::new().add_attribute("method", "update_state"))
-}
-
-fn query_token_balance(
-    querier: &QuerierWrapper,
-    contract_addr: Addr,
-    account_addr: Addr
-) -> StdResult<Uint128> {
-    let res: BalanceResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: contract_addr.to_string(),
-        msg: to_binary(&Cw20QueryMsg::Balance {
-            address: account_addr.to_string(),
-        })?,
-    }))?;
-
-    Ok(res.balance)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
